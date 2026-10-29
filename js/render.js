@@ -592,9 +592,12 @@ export class BoardView {
       g.arc(cx, cy, R, 0, TAU);
       g.stroke();
       if (glow > 0.01) {
+        // layered strokes instead of shadowBlur (cheap on software renderers)
+        g.setLineDash([]);
+        g.strokeStyle = hexA(color.hex, 0.18 * glow);
+        g.lineWidth = Math.max(4, s * 0.34);
+        g.stroke();
         g.strokeStyle = hexA(color.hex, 0.85 * glow);
-        g.shadowColor = color.hex;
-        g.shadowBlur = s * 0.4 * glow;
         g.lineWidth = Math.max(2, s * 0.08);
         g.stroke();
       }
@@ -737,8 +740,6 @@ export class BoardView {
     const id = this.hint.id;
     g.save();
     g.strokeStyle = `rgba(255,240,200,${0.55 + 0.45 * pulse})`;
-    g.shadowColor = '#fff2c4';
-    g.shadowBlur = s * 0.35;
     g.lineWidth = Math.max(2, s * 0.06);
     if (id[0] === 'b') {
       const [mx, my] = this.px(...this.bridgeMid(Number(id.slice(1))));

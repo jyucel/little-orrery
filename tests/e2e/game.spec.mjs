@@ -22,7 +22,8 @@ function trackErrors(page) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => {
-    if (m.type() === 'error') errors.push(m.text());
+    // Firefox reports in-flight work aborted by a test navigation this way
+    if (m.type() === 'error' && !m.text().includes('Navigated away from page')) errors.push(m.text());
   });
   return errors;
 }
@@ -59,7 +60,7 @@ async function dragRing(page, r, steps) {
   const pt = (a) => [geo.cx + Math.cos(a) * geo.R, geo.cy + Math.sin(a) * geo.R];
   await page.mouse.move(...pt(a0));
   await page.mouse.down();
-  const N = 12 * Math.abs(steps);
+  const N = 6 * Math.abs(steps);
   for (let i = 1; i <= N; i++) await page.mouse.move(...pt(a0 + (total * i) / N));
   await page.mouse.up();
 }

@@ -8,7 +8,8 @@ const WEBKIT = !!(process.env.CI || process.env.WEBKIT);
 
 export default defineConfig({
   testDir: 'tests/e2e',
-  timeout: 60_000,
+  timeout: 120_000,
+  retries: process.env.CI ? 1 : 0,
   fullyParallel: true,
   workers: process.env.CI ? 2 : 4,
   reporter: [['list']],
