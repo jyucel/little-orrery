@@ -47,8 +47,11 @@ conveyor-sorting games.
 - **Swap**: tap a bridge to exchange the two orbs it connects. One move.
 - **Win**: every ring is monochrome. Any color may end up on any ring, as long
   as each ring is a single color.
-- **Stars**: ★★★ at or under par (the optimal solution), ★★ within par + 50%
-  (at least +2), ★ for any solution.
+- **Move limit**: every level has a budget of par + 3–6 moves (the margin
+  tightens chapter by chapter). Undo gives moves back. Without the limit,
+  wandering around eventually solves anything; with it, every move counts.
+- **Stars**: ★★★ at or under par (the optimal solution), ★★ within half of the
+  margin, ★ within the limit.
 
 ## Mechanisms (introduced one chapter at a time)
 | Mechanism | Rule | Visual cue |
@@ -56,20 +59,29 @@ conveyor-sorting games.
 | Anchor | Ring cannot spin; its orbs only change through bridges | Padlock hub, dashed track |
 | One-way | Ring spins clockwise only | Arrow hub, chevrons on track |
 | Gears | Spinning one ring of a geared pair spins the other the opposite way | Cog hubs joined by a chain |
+| Star chart | Each slot must hold one specific color (an exact pattern, not just one color) | Colored rim around every slot, star hub |
 
-## Progression (200 levels, 8 chapters × 25)
-1. **First Light**: two to three rings, guided tutorial in levels 1–3.
-2. **Twin Orbits**: double bridges and larger rings.
+## Progression (250 levels, 10 chapters × 25)
+1. **First Light**: tutorial in levels 1–3, then three- and four-ring boards by the end of the chapter.
+2. **Twin Orbits**: double bridges and large rings.
 3. **Constellations**: four rings, loops of bridges.
 4. **Anchors**: anchored rings.
 5. **Clockwork**: one-way rings.
 6. **Gearworks**: geared pairs.
-7. **Nebula**: five rings, twin colors (two rings share a color).
-8. **Grand Orrery**: two or three mechanisms combined.
+7. **Star Charts**: pattern rings (pattern recognition on top of sorting).
+8. **Nebula**: five rings, twin colors.
+9. **Celestial Clockwork**: star charts combined with a mechanism.
+10. **Grand Orrery**: two or three mechanisms combined.
 
-Within each chapter, par climbs steadily (from 1 to 13 across the game). The
-next level always unlocks, plus three levels of look-ahead, so players never
-get stuck on a single puzzle.
+Par climbs from 1 to 18. Each new mechanism eases in a little before ramping
+up. The next level always unlocks, plus three levels of look-ahead.
+
+## Retention
+- **Daily Orrery**: one hard board per calendar day from a pool of 120, with a
+  streak counter on the title screen.
+- **Hint tokens**: three to start, then one more for each first ★★★ and each
+  daily solve (up to nine). Hints feel valuable, and three-starring old levels
+  is worth the effort.
 
 ## Feel & identity
 - Night-sky orrery: deep indigo backdrop, brass orbits, glossy gem-like orbs,
@@ -85,7 +97,8 @@ get stuck on a single puzzle.
 ## Verification
 - `tools/generate-levels.mjs` scrambles solved boards and keeps a board only
   after the bidirectional-BFS solver finds its optimal solution.
-- `npm test` re-solves every level, replays every stored solution through the
-  game engine, and checks rules, undo, restart and progression.
+- `npm test` re-solves every level and daily puzzle, replays every stored
+  solution through the game engine, and checks rules, limits, undo, restart and
+  progression.
 - `npm run test:e2e` drives the real game in Chromium (desktop and mobile
   viewports) with Playwright.

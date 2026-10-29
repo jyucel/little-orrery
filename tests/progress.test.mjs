@@ -1,7 +1,7 @@
 // Saved progress: unlocking, stars, persistence, robustness.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Progress, LOOKAHEAD } from '../js/progress.js';
+import { Progress, LOOKAHEAD, START_HINTS, MAX_HINTS, dayKey, dayDiff } from '../js/progress.js';
 
 class MemoryStorage {
   constructor() {
@@ -112,4 +112,61 @@ test('reset clears progress but keeps settings', () => {
   p.reset();
   assert.equal(p.solvedCount(), 0);
   assert.equal(p.setting('sfx'), false);
+});
+
+test('hints: start with a few, spend them, earn one per first three-star finish', () => {
+  const p = new Progress(new MemoryStorage(), 200);
+  assert.equal(p.hints, START_HINTS);
+  assert.ok(p.useHint());
+  assert.equal(p.hints, START_HINTS - 1);
+  let r = p.recordWin(5, 9, 6, 10); // 1 star: no hint
+  assert.equal(r.hintEarned, false);
+  r = p.recordWin(5, 6, 6, 10); // first 3 stars
+  assert.equal(r.hintEarned, true);
+  assert.equal(p.hints, START_HINTS);
+  r = p.recordWin(5, 6, 6, 10); // repeat: nothing
+  assert.equal(r.hintEarned, false);
+  while (p.useHint());
+  assert.equal(p.hints, 0);
+  assert.equal(p.useHint(), false);
+  for (let i = 0; i < 20; i++) p.addHint();
+  assert.equal(p.hints, MAX_HINTS, 'hints are capped');
+});
+
+test('daily streak counts consecutive days and resets after a gap', () => {
+  const p = new Progress(new MemoryStorage(), 200);
+  assert.equal(p.dailyStreak('2026-03-01'), 0);
+  let r = p.recordDaily('2026-03-01', 12, 12, 16);
+  assert.deepEqual([r.streak, r.first, r.stars], [1, true, 3]);
+  assert.ok(p.dailyDone('2026-03-01'));
+  assert.equal(p.dailyDone('2026-03-02'), false);
+  r = p.recordDaily('2026-03-01', 11, 12, 16); // replay same day
+  assert.equal(r.first, false);
+  assert.equal(r.streak, 1);
+  p.recordDaily('2026-03-02', 14, 12, 16);
+  r = p.recordDaily('2026-03-03', 16, 12, 16);
+  assert.equal(r.streak, 3);
+  assert.equal(p.dailyStreak('2026-03-04'), 3, 'still alive the next day');
+  assert.equal(p.dailyStreak('2026-03-05'), 0, 'broken after a missed day');
+  r = p.recordDaily('2026-03-06', 12, 12, 16);
+  assert.equal(r.streak, 1);
+  assert.equal(p.data.daily.bestStreak, 3);
+  // across a month boundary
+  p.recordDaily('2026-03-31', 12, 12, 16);
+  assert.equal(p.recordDaily('2026-04-01', 12, 12, 16).streak, 2);
+});
+
+test('day helpers', () => {
+  assert.equal(dayKey(new Date(2026, 0, 5)), '2026-01-05');
+  assert.equal(dayDiff('2026-02-28', '2026-03-01'), 1);
+  assert.equal(dayDiff('2025-12-31', '2026-01-01'), 1);
+});
+
+test('older saves without hints or daily data load with defaults', () => {
+  const store = new MemoryStorage();
+  store.setItem('little-orrery.v1', JSON.stringify({ v: 1, stars: { 1: 3 }, best: {}, seen: {}, last: 2, settings: {} }));
+  const p = new Progress(store, 200);
+  assert.equal(p.stars(1), 3);
+  assert.equal(p.hints, START_HINTS);
+  assert.equal(p.dailyStreak('2026-01-01'), 0);
 });

@@ -16,7 +16,12 @@
 //   - swap    exchange the two orbs at the ends of a bridge.
 //
 // Goal
-//   Every ring contains orbs of a single color.
+//   Every ring contains orbs of a single color, except "star chart" rings
+//   (ring.pattern, one color digit per slot) whose slots must hold exactly
+//   the colors of their pattern.
+//
+// Move limit
+//   level.limit caps the number of moves; undo gives moves back.
 
 export const CW = 1;
 export const CCW = -1;
@@ -112,7 +117,16 @@ export function ringCells(level, cells, r) {
 
 export function isRingSolved(level, cells, r) {
   const c = ringCells(level, cells, r);
+  const pattern = level.rings[r].pattern;
+  if (pattern) return c.every((v, k) => v === Number(pattern[k]));
   return c.every((v) => v === c[0]);
+}
+
+/** Per-slot match flags for a star-chart ring (null for ordinary rings). */
+export function patternMatches(level, cells, r) {
+  const pattern = level.rings[r].pattern;
+  if (!pattern) return null;
+  return ringCells(level, cells, r).map((v, k) => v === Number(pattern[k]));
 }
 
 export function isSolved(level, cells) {
@@ -151,6 +165,10 @@ export function validateLevel(level) {
     }
     if (b.a === b.b) errs.push(`bridge ${i}: connects a ring to itself`);
   });
+  level.rings.forEach((ring, r) => {
+    if (ring.pattern && (ring.pattern.length !== ring.n || /[^0-9]/.test(ring.pattern))) errs.push(`ring ${r}: bad pattern`);
+  });
+  if (level.limit !== undefined && !(level.limit >= (level.par || 0))) errs.push('move limit below par');
   for (const [a, b] of level.gears || []) {
     for (const r of [a, b]) {
       if (!level.rings[r]) errs.push(`gear: bad ring ${r}`);
@@ -158,33 +176,50 @@ export function validateLevel(level) {
     }
   }
   // The goal must be reachable in principle: color counts must be packable
-  // into rings so that each ring is monochrome.
-  if (!goalStates(level, cells).length) errs.push('color counts cannot fill rings monochromatically');
+  // into the patterns and monochrome rings.
+  if (!goalStates(level, cells).length) errs.push('color counts cannot fill the rings');
   return errs;
 }
 
-/** Every monochrome arrangement compatible with the board's color counts. */
+/**
+ * Every solved arrangement compatible with the board's color counts:
+ * star-chart rings hold their pattern, the other rings are monochrome.
+ */
 export function goalStates(level, cells) {
-  const counts = colorCounts(cells);
-  const colors = [...counts.keys()].sort();
-  const remaining = new Map(counts);
-  const sizes = level.rings.map((r) => r.n);
+  const remaining = colorCounts(cells);
+  const colors = [...remaining.keys()].sort();
+  const rings = level.rings;
+  for (const ring of rings) {
+    if (!ring.pattern) continue;
+    for (const ch of ring.pattern) {
+      const c = Number(ch);
+      if (!(remaining.get(c) > 0)) return [];
+      remaining.set(c, remaining.get(c) - 1);
+    }
+  }
   const out = [];
   const pick = [];
   (function rec(i) {
-    if (i === sizes.length) {
+    if (i === rings.length) {
       if ([...remaining.values()].every((v) => v === 0)) {
-        out.push(pick.flatMap((c, r) => new Array(sizes[r]).fill(c)));
+        out.push(rings.flatMap((ring, r) => (ring.pattern ? [...ring.pattern].map(Number) : new Array(ring.n).fill(pick[r]))));
       }
       return;
     }
+    if (rings[i].pattern) {
+      pick.push(null);
+      rec(i + 1);
+      pick.pop();
+      return;
+    }
+    const n = rings[i].n;
     for (const c of colors) {
-      if (remaining.get(c) >= sizes[i]) {
-        remaining.set(c, remaining.get(c) - sizes[i]);
+      if (remaining.get(c) >= n) {
+        remaining.set(c, remaining.get(c) - n);
         pick.push(c);
         rec(i + 1);
         pick.pop();
-        remaining.set(c, remaining.get(c) + sizes[i]);
+        remaining.set(c, remaining.get(c) + n);
       }
     }
   })(0);
@@ -202,6 +237,7 @@ export class Game {
     this.moves = buildMoves(level);
     this.byId = new Map(this.moves.map((m) => [m.id, m]));
     this.initial = decodeStart(level);
+    this.limit = level.limit ?? Infinity;
     this.restart();
   }
 
@@ -220,14 +256,25 @@ export class Game {
     return this.byId.has(id);
   }
 
+  get movesLeft() {
+    return this.limit - this.moveCount;
+  }
+
+  /** Out of moves without having solved the board (undo or restart to go on). */
+  get outOfMoves() {
+    return !this.solved && this.moveCount >= this.limit;
+  }
+
   /**
-   * Apply an action made of one or more move ids. Illegal actions are
-   * rejected as a whole and leave the state untouched. Returns true on success.
+   * Apply an action made of one or more move ids. Illegal actions, and
+   * actions that would exceed the move limit, are rejected as a whole and
+   * leave the state untouched. Returns true on success.
    */
   play(ids) {
     if (!Array.isArray(ids)) ids = [ids];
     if (!ids.length || !ids.every((id) => this.byId.has(id))) return false;
     if (this.solved) return false;
+    if (this.moveCount + ids.length > this.limit) return false;
     const before = this.cells;
     let cells = before;
     for (const id of ids) cells = applyPerm(cells, this.byId.get(id).perm);
@@ -254,9 +301,12 @@ export class Game {
   }
 }
 
-/** Star rating for finishing a level in `moves` against `par`. */
-export function starsFor(moves, par) {
+/**
+ * Star rating for finishing a level in `moves`: three at or under par, two
+ * within half of the margin to the move limit, otherwise one.
+ */
+export function starsFor(moves, par, limit = par + 4) {
   if (moves <= par) return 3;
-  if (moves <= par + Math.max(2, Math.ceil(par * 0.5))) return 2;
+  if (moves <= par + Math.max(1, Math.ceil((limit - par) / 2))) return 2;
   return 1;
 }

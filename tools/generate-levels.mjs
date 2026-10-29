@@ -2,6 +2,9 @@
 //
 //   node tools/generate-levels.mjs
 //
+// Chapters (and the daily-puzzle pool) are generated in parallel worker
+// threads; every level has its own seed, so the output is deterministic.
+//
 // For every level it:
 //   1. picks a ring topology, ring sizes and mechanics for the chapter,
 //   2. places rings and bridges geometrically,
@@ -12,6 +15,8 @@
 // test-suite can replay it, and re-runs the solver to prove solvability.
 
 import { writeFileSync } from 'node:fs';
+import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
+import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { buildMoves, applyPerm, isRingSolved, isSolved, encodeCells, validateLevel } from '../js/engine.js';
@@ -155,107 +160,155 @@ function bridgeDegree(bridges, i) {
 // Chapters
 // ---------------------------------------------------------------------------
 
+const FOUR = ['line4', 'zig4', 'star4', 'square4', 'cup4', 'kite4', 'diamond4'];
+const FIVE = ['plus5', 'line5', 'zig5', 'house5', 'arch5'];
+const sizesFor = (rng, t, lo, hi) => TOPOS[t].pos.map(() => randInt(rng, lo, hi));
+
 const CHAPTERS = [
   {
     name: 'First Light',
     blurb: 'Spin and swap your first orbits.',
     lo: 1,
-    hi: 7,
+    hi: 9,
+    slack: 6,
     spec(i, rng) {
-      if (i < 10) return { topo: pick(rng, ['duo', 'duo', 'duo2']), sizes: [randInt(rng, 3, 4), randInt(rng, 3, 5)] };
-      if (i < 18) return { topo: pick(rng, ['duo2', 'line3', 'vee3']), sizes: [3, 4, 4].map((n) => randInt(rng, 3, n)) };
-      return { topo: pick(rng, ['line3', 'vee3', 'tri3']), sizes: [4, 4, 4].map(() => randInt(rng, 3, 5)) };
+      if (i < 7) return { topo: pick(rng, ['duo', 'duo2']), sizes: [randInt(rng, 3, 5), randInt(rng, 3, 5)] };
+      if (i < 16) { const t = pick(rng, ['line3', 'vee3', 'tri3']); return { topo: t, sizes: sizesFor(rng, t, 3, 4) }; }
+      const t = pick(rng, ['tri3', 'line3d', 'line4', 'star4']);
+      return { topo: t, sizes: sizesFor(rng, t, 3, 5) };
     },
   },
   {
     name: 'Twin Orbits',
     blurb: 'Double bridges and bigger rings.',
-    lo: 4,
-    hi: 9,
+    lo: 6,
+    hi: 12,
+    slack: 6,
     spec(i, rng) {
-      if (i < 8) return { topo: 'duo2', sizes: [randInt(rng, 5, 7), randInt(rng, 5, 7)] };
-      return { topo: pick(rng, ['line3d', 'line3dd', 'tri3', 'vee3']), sizes: [0, 0, 0].map(() => randInt(rng, 4, 6)) };
+      if (i < 6) return { topo: 'duo2', sizes: [randInt(rng, 6, 7), randInt(rng, 5, 7)] };
+      const t = pick(rng, ['line3d', 'line3dd', 'tri3', 'vee3']);
+      return { topo: t, sizes: sizesFor(rng, t, 4, 6) };
     },
   },
   {
     name: 'Constellations',
     blurb: 'Four orbits, four colors.',
-    lo: 5,
-    hi: 10,
+    lo: 7,
+    hi: 13,
+    slack: 5,
     spec(i, rng) {
-      const t = i < 10 ? pick(rng, ['line4', 'zig4', 'star4']) : pick(rng, ['square4', 'cup4', 'kite4', 'diamond4', 'star4']);
-      return { topo: t, sizes: [0, 0, 0, 0].map(() => randInt(rng, 3, i < 10 ? 4 : 5)) };
+      const t = pick(rng, FOUR);
+      return { topo: t, sizes: sizesFor(rng, t, 3, i < 10 ? 4 : 5) };
     },
   },
   {
     name: 'Anchors',
     blurb: 'Anchored rings never spin.',
     intro: 'locked',
-    lo: 5,
-    hi: 11,
+    lo: 7,
+    hi: 14,
+    slack: 5,
     spec(i, rng) {
-      const t = i < 8 ? pick(rng, ['line3dd', 'tri3', 'line3d']) : pick(rng, ['star4', 'square4', 'diamond4', 'tri3', 'kite4']);
-      const sizes = TOPOS[t].pos.map(() => randInt(rng, 3, 5));
-      return { topo: t, sizes, locked: i < 15 ? 1 : randInt(rng, 1, 2) };
+      const t = i < 6 ? pick(rng, ['line3dd', 'tri3', 'line3d']) : pick(rng, ['star4', 'square4', 'diamond4', 'kite4', 'plus5']);
+      return { topo: t, sizes: sizesFor(rng, t, 3, 5), locked: i < 14 ? 1 : randInt(rng, 1, 2) };
     },
   },
   {
     name: 'Clockwork',
     blurb: 'One-way rings only turn clockwise.',
     intro: 'oneway',
-    lo: 5,
-    hi: 12,
+    lo: 8,
+    hi: 14,
+    slack: 4,
     spec(i, rng) {
-      const t = i < 8 ? pick(rng, ['duo2', 'line3', 'vee3']) : pick(rng, ['tri3', 'line4', 'star4', 'zig4', 'square4']);
-      const sizes = TOPOS[t].pos.map(() => randInt(rng, 3, 5));
-      return { topo: t, sizes, oneway: i < 10 ? 1 : randInt(rng, 1, 2) };
+      const t = i < 6 ? pick(rng, ['duo2', 'line3', 'tri3']) : pick(rng, FOUR);
+      return { topo: t, sizes: sizesFor(rng, t, 3, 5), oneway: i < 10 ? 1 : randInt(rng, 1, 2) };
     },
   },
   {
     name: 'Gearworks',
     blurb: 'Geared rings turn together, in opposite directions.',
     intro: 'gear',
-    lo: 5,
-    hi: 12,
+    lo: 8,
+    hi: 15,
+    slack: 4,
     spec(i, rng) {
-      const t = i < 8 ? pick(rng, ['line3', 'vee3', 'tri3']) : pick(rng, ['line4', 'star4', 'square4', 'zig4', 'kite4']);
-      const sizes = TOPOS[t].pos.map(() => randInt(rng, 3, 5));
-      return { topo: t, sizes, gears: 1 };
+      const t = i < 6 ? pick(rng, ['line3', 'vee3', 'tri3']) : pick(rng, FOUR);
+      return { topo: t, sizes: sizesFor(rng, t, 3, 5), gears: 1 };
+    },
+  },
+  {
+    name: 'Star Charts',
+    blurb: 'Some rings must show an exact pattern.',
+    intro: 'pattern',
+    lo: 6,
+    hi: 14,
+    slack: 4,
+    spec(i, rng) {
+      const t = i < 8 ? pick(rng, ['duo2', 'line3', 'tri3', 'vee3']) : pick(rng, FOUR);
+      return { topo: t, sizes: sizesFor(rng, t, 3, 5), patterns: i < 16 ? 1 : 2 };
     },
   },
   {
     name: 'Nebula',
     blurb: 'Five orbits and twin colors.',
-    lo: 6,
-    hi: 12,
+    lo: 10,
+    hi: 16,
+    slack: 3,
     spec(i, rng) {
-      const t = pick(rng, ['plus5', 'line5', 'zig5', 'house5', 'arch5', 'square4', 'diamond4']);
-      const sizes = TOPOS[t].pos.map(() => randInt(rng, 3, 4));
-      const s = { topo: t, sizes };
+      const t = pick(rng, [...FIVE, 'square4', 'diamond4']);
+      const s = { topo: t, sizes: sizesFor(rng, t, 3, 4) };
       const roll = rng();
-      if (roll < 0.25) s.locked = 1;
-      else if (roll < 0.45) s.oneway = 1;
-      else if (roll < 0.6) s.gears = 1;
+      if (roll < 0.2) s.locked = 1;
+      else if (roll < 0.4) s.oneway = 1;
+      else if (roll < 0.55) s.gears = 1;
+      else if (roll < 0.75) s.patterns = 1;
       if (rng() < 0.35) s.twins = true;
+      return s;
+    },
+  },
+  {
+    name: 'Celestial Clockwork',
+    blurb: 'Star charts meet the mechanisms.',
+    lo: 11,
+    hi: 17,
+    slack: 3,
+    spec(i, rng) {
+      const t = pick(rng, [...FOUR, ...FIVE]);
+      const s = { topo: t, sizes: sizesFor(rng, t, 3, 5), patterns: randInt(rng, 1, 2) };
+      s[pick(rng, ['locked', 'oneway', 'gears'])] = 1;
       return s;
     },
   },
   {
     name: 'Grand Orrery',
     blurb: 'Every mechanism at once.',
-    lo: 7,
-    hi: 13,
+    lo: 12,
+    hi: 18,
+    slack: 3,
     spec(i, rng) {
-      const t = pick(rng, ['plus5', 'house5', 'arch5', 'zig5', 'diamond4', 'kite4', 'square4', 'star4']);
-      const sizes = TOPOS[t].pos.map(() => randInt(rng, 3, 5));
-      const s = { topo: t, sizes };
-      const mech = shuffle(rng, ['locked', 'oneway', 'gears']).slice(0, randInt(rng, 2, 3));
-      for (const m of mech) s[m] = 1;
-      if (rng() < 0.25) s.twins = true;
+      const t = pick(rng, [...FIVE, 'diamond4', 'kite4', 'square4', 'star4']);
+      const s = { topo: t, sizes: sizesFor(rng, t, 3, 5) };
+      for (const m of shuffle(rng, ['locked', 'oneway', 'gears', 'patterns']).slice(0, randInt(rng, 2, 3))) s[m] = 1;
+      if (rng() < 0.2) s.twins = true;
       return s;
     },
   },
 ];
+
+// Daily puzzles: a pool of mid-to-hard boards, one per calendar day.
+const DAILY_COUNT = 120;
+const DAILY = {
+  slack: 4,
+  spec(i, rng) {
+    const t = pick(rng, [...FOUR, ...FIVE, 'tri3', 'line3dd']);
+    const s = { topo: t, sizes: sizesFor(rng, t, 3, 5) };
+    const extra = pick(rng, [null, 'locked', 'oneway', 'gears', 'patterns', 'patterns']);
+    if (extra) s[extra] = 1;
+    return s;
+  },
+  target: (i) => 11 + (i % 4),
+};
 
 function target(ch, i) {
   const c = CHAPTERS[ch];
@@ -291,7 +344,7 @@ function buildLevel(spec, rng) {
 
   // colors: ring i is solved with color col[i]
   const palette = shuffle(rng, [0, 1, 2, 3, 4, 5]);
-  let col = idx.map((i) => palette[i]);
+  const col = idx.map((i) => palette[i]);
   if (spec.twins) {
     // pair up rings of equal size to share a color
     const bySize = new Map();
@@ -300,7 +353,33 @@ function buildLevel(spec, rng) {
     if (!group) return null;
     col[group[1]] = col[group[0]];
   }
-  level.solvedCells = idx.flatMap((i) => new Array(rings[i].n).fill(col[i]));
+  const solved = idx.map((i) => new Array(rings[i].n).fill(col[i]));
+
+  if (spec.patterns) {
+    // Star charts: a ring's target becomes a pattern mixing its own color
+    // with colors of other rings. The board's orbs are exactly the solved
+    // contents of every ring, so color counts are consistent by construction.
+    const cands = shuffle(rng, idx.filter((i) => rings[i].n >= 3));
+    if (cands.length < spec.patterns + 1) return null;
+    const pat = cands.slice(0, spec.patterns);
+    for (const i of pat) {
+      const n = rings[i].n;
+      const others = shuffle(rng, [...new Set(idx.filter((j) => j !== i).map((j) => col[j]))]);
+      const a = col[i];
+      const b = others[0];
+      const c = others[1] ?? b;
+      const style = pick(rng, ['alt', 'half', 'tri', 'odd']);
+      let p;
+      if (style === 'alt') p = Array.from({ length: n }, (_, k) => (k % 2 ? b : a));
+      else if (style === 'half') p = Array.from({ length: n }, (_, k) => (k < Math.ceil(n / 2) ? a : b));
+      else if (style === 'tri') p = Array.from({ length: n }, (_, k) => [a, b, c][k % 3]);
+      else p = Array.from({ length: n }, (_, k) => (k === 0 ? b : a));
+      if (p.every((v) => v === p[0])) return null;
+      solved[i] = p;
+      rings[i].pattern = p.join('');
+    }
+  }
+  level.solvedCells = solved.flat();
   return level;
 }
 
@@ -322,21 +401,21 @@ function scramble(level, k, rng) {
   return cells;
 }
 
-function makeLevel(id, ch, i, fixed) {
-  const rng = mulberry32(1000 + id * 7919);
-  const t = target(ch, i);
+function makeLevel({ id, seed, t, slack, specFn, fixed, extra }) {
+  const rng = mulberry32(seed);
   let best = null;
-  for (let attempt = 0; attempt < 400; attempt++) {
-    const spec = fixed ? fixed.spec : CHAPTERS[ch].spec(i, rng);
+  for (let attempt = 0; attempt < 300; attempt++) {
+    const spec = fixed ? fixed.spec : specFn(rng);
     const level = buildLevel(spec, rng);
     if (!level) continue;
-    const cells = fixed ? fixed.cells(level) : scramble(level, t + randInt(rng, 0, Math.max(2, t)), rng);
+    const k = Math.round(t * (1 + rng() * 1.5)) + 1;
+    const cells = fixed ? fixed.cells(level) : scramble(level, k, rng);
     if (isSolved(level, cells)) continue;
     if (level.rings.some((_, r) => isRingSolved(level, cells, r))) continue;
-    const sol = solve(level, cells, { maxNodes: 2_500_000 });
+    const sol = solve(level, cells, { maxNodes: 6_000_000 });
     if (!sol) continue;
-    const slack = attempt < 150 ? 0 : attempt < 300 ? 1 : 2;
-    const ok = fixed ? sol.length === fixed.par : Math.abs(sol.length - t) <= slack;
+    const tol = attempt < 100 ? 0 : attempt < 200 ? 1 : 2;
+    const ok = fixed ? sol.length === fixed.par : Math.abs(sol.length - t) <= tol;
     const cand = { level, cells, sol, spec };
     if (!best || Math.abs(sol.length - t) < Math.abs(best.sol.length - t)) best = cand;
     if (ok) {
@@ -349,18 +428,19 @@ function makeLevel(id, ch, i, fixed) {
   delete level.solvedCells;
   const out = {
     id,
-    chapter: ch,
+    ...extra,
     rings: level.rings,
     bridges: level.bridges,
     ...(level.gears ? { gears: level.gears } : {}),
     start: '',
     par: sol.length,
+    limit: sol.length + slack,
     solution: sol.path,
   };
   out.start = encodeCells(out, cells);
   const errs = validateLevel(out);
   if (errs.length) throw new Error(`level ${id}: ${errs.join(', ')}`);
-  return { out, spec };
+  return { out, spec, t };
 }
 
 // Scripted tutorial boards (chapter 1, levels 1-2).
@@ -375,32 +455,105 @@ const tutorial = {
     spec: { topo: 'duo', sizes: [4, 4] },
     cells: (lv) => {
       const mv = buildMoves(lv);
-      let c = applyPerm(lv.solvedCells, mv.find((m) => m.id === 'b0').perm);
+      const c = applyPerm(lv.solvedCells, mv.find((m) => m.id === 'b0').perm);
       return applyPerm(c, mv.find((m) => m.id === 'r1-').perm);
     },
   },
 };
 
-const levels = [];
-const t0 = Date.now();
-for (let ch = 0; ch < CHAPTERS.length; ch++) {
+/** Generate one job: a chapter index, or 'daily'. */
+function runJob(job) {
+  const out = [];
+  if (job === 'daily') {
+    for (let i = 0; i < DAILY_COUNT; i++) {
+      const r = makeLevel({
+        id: `d${i + 1}`,
+        seed: 777_000 + i * 104_729,
+        t: DAILY.target(i),
+        slack: DAILY.slack,
+        specFn: (rng) => DAILY.spec(i, rng),
+        extra: { daily: true },
+      });
+      out.push(r);
+    }
+    return out;
+  }
+  const ch = job;
   for (let i = 0; i < LEVELS_PER_CHAPTER; i++) {
     const id = ch * LEVELS_PER_CHAPTER + i + 1;
-    const { out, spec } = makeLevel(id, ch, i, tutorial[id]);
-    levels.push(out);
-    process.stdout.write(`L${id} ${spec.topo} [${spec.sizes}] par=${out.par} (target ${target(ch, i)})\n`);
+    out.push(
+      makeLevel({
+        id,
+        seed: 1000 + id * 7919,
+        t: target(ch, i),
+        slack: CHAPTERS[ch].slack,
+        specFn: (rng) => CHAPTERS[ch].spec(i, rng),
+        fixed: tutorial[id],
+        extra: { chapter: ch },
+      }),
+    );
   }
+  return out;
 }
 
-const header = `// Generated by tools/generate-levels.mjs. Do not edit by hand.
-// ${levels.length} levels, each verified solvable; "par" is the optimal move count
-// and "solution" one optimal solution.
-`;
-const chapters = CHAPTERS.map(({ name, blurb, intro }) => ({ name, blurb, ...(intro ? { intro } : {}) }));
-writeFileSync(
-  join(ROOT, 'js', 'levels.js'),
-  `${header}\nexport const CHAPTERS = ${JSON.stringify(chapters, null, 1)};\n\nexport const LEVELS = [\n${levels
-    .map((l) => '  ' + JSON.stringify(l))
-    .join(',\n')}\n];\n`,
-);
-console.log(`Wrote ${levels.length} levels in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+if (!isMainThread) {
+  parentPort.postMessage(runJob(workerData));
+} else {
+  const t0 = Date.now();
+  // longest jobs first
+  const jobs = ['daily', ...CHAPTERS.map((_, c) => c).reverse()];
+  const results = new Map();
+  const width = Math.max(1, Math.min(jobs.length, (availableParallelism?.() || 4) - 1));
+  let next = 0;
+  await new Promise((resolve, reject) => {
+    let running = 0;
+    const launch = () => {
+      if (next >= jobs.length) {
+        if (!running) resolve();
+        return;
+      }
+      const job = jobs[next++];
+      running++;
+      const w = new Worker(fileURLToPath(import.meta.url), { workerData: job, resourceLimits: { maxOldGenerationSizeMb: 2048 } });
+      w.once('message', (res) => {
+        results.set(job, res);
+        for (const r of res) process.stdout.write(`${r.out.id} ${r.spec.topo} par=${r.out.par} (target ${r.t})\n`);
+      });
+      w.once('error', reject);
+      w.once('exit', () => {
+        running--;
+        launch();
+      });
+    };
+    for (let i = 0; i < width; i++) launch();
+  });
+
+  const levels = CHAPTERS.flatMap((_, c) => results.get(c).map((r) => r.out));
+  const daily = results.get('daily').map((r) => r.out);
+  const chapters = CHAPTERS.map(({ name, blurb, intro }) => ({ name, blurb, ...(intro ? { intro } : {}) }));
+  const rows = (arr) => arr.map((l) => '  ' + JSON.stringify(l)).join(',\n');
+  writeFileSync(
+    join(ROOT, 'js', 'levels.js'),
+    `// Generated by tools/generate-levels.mjs. Do not edit by hand.
+// ${levels.length} levels, each verified solvable; "par" is the optimal move count,
+// "limit" the move budget and "solution" one optimal solution.
+
+export const CHAPTERS = ${JSON.stringify(chapters, null, 1)};
+
+export const LEVELS = [
+${rows(levels)}
+];
+`,
+  );
+  writeFileSync(
+    join(ROOT, 'js', 'daily.js'),
+    `// Generated by tools/generate-levels.mjs. Do not edit by hand.
+// Pool of ${daily.length} daily puzzles; the game picks one per calendar day.
+
+export const DAILY = [
+${rows(daily)}
+];
+`,
+  );
+  console.log(`Wrote ${levels.length} levels + ${daily.length} daily puzzles in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+}

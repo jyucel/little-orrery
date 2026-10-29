@@ -11,6 +11,7 @@ import {
   goalStates,
   validateLevel,
   starsFor,
+  patternMatches,
 } from '../js/engine.js';
 
 // Two rings of four joined by one bridge (ring0 slot0 <-> ring1 slot2).
@@ -195,14 +196,72 @@ test('validateLevel catches malformed levels', () => {
   assert.match(validateLevel(bad4).join(), /must be free/);
 });
 
-test('star thresholds', () => {
-  assert.equal(starsFor(5, 5), 3);
-  assert.equal(starsFor(4, 5), 3);
-  assert.equal(starsFor(7, 5), 2);
-  assert.equal(starsFor(8, 5), 2);
-  assert.equal(starsFor(9, 5), 1);
-  assert.equal(starsFor(3, 1), 2);
-  assert.equal(starsFor(4, 1), 1);
-  assert.equal(starsFor(15, 10), 2);
-  assert.equal(starsFor(16, 10), 1);
+test('star thresholds are measured against the move limit', () => {
+  // par 5, limit 9: 3 stars <= 5, 2 stars <= 7, 1 star <= 9
+  assert.equal(starsFor(4, 5, 9), 3);
+  assert.equal(starsFor(5, 5, 9), 3);
+  assert.equal(starsFor(6, 5, 9), 2);
+  assert.equal(starsFor(7, 5, 9), 2);
+  assert.equal(starsFor(8, 5, 9), 1);
+  assert.equal(starsFor(9, 5, 9), 1);
+  // tight limit: margin 3 -> two stars within 2
+  assert.equal(starsFor(12, 10, 13), 2);
+  assert.equal(starsFor(13, 10, 13), 1);
+});
+
+test('move limit: actions beyond the limit are refused; undo gives moves back', () => {
+  const g = new Game({ ...duo({ start: '0101|1010' }), par: 2, limit: 3 });
+  assert.equal(g.movesLeft, 3);
+  assert.ok(g.play(['r0+', 'r0+']));
+  assert.equal(g.play(['r1+', 'r1+']), false, 'would exceed the limit');
+  assert.equal(g.moveCount, 2);
+  assert.ok(g.play('r1+'));
+  assert.equal(g.movesLeft, 0);
+  assert.ok(g.outOfMoves);
+  assert.equal(g.play('b0'), false);
+  g.undo();
+  assert.equal(g.outOfMoves, false);
+  assert.ok(g.play('b0'));
+  g.restart();
+  assert.equal(g.movesLeft, 3);
+});
+
+test('levels without a limit are unlimited', () => {
+  const g = new Game(duo({ start: '0101|1010' }));
+  for (let i = 0; i < 50; i++) assert.ok(g.play('r0+'));
+  assert.equal(g.outOfMoves, false);
+});
+
+// Star chart: ring0 must read 0,1,0,1 exactly; ring1 monochrome.
+function chart(start) {
+  const lv = duo({ start });
+  lv.rings[0].pattern = '0101';
+  return lv;
+}
+
+test('star chart rings must match their pattern exactly (not up to rotation)', () => {
+  const lv = chart('0101|0011');
+  assert.equal(isSolved(lv, decodeStart(lv)), false, 'ring1 not monochrome');
+  const ok = chart('0101|1111');
+  // color counts must allow it: 0101 + 1111 -> two 0s, six 1s
+  assert.ok(isSolved(ok, decodeStart(ok)));
+  const rotated = chart('1010|1111');
+  assert.equal(isSolved(rotated, decodeStart(rotated)), false, 'rotation of the pattern does not count');
+  const g = new Game(rotated);
+  g.play('r0+');
+  assert.ok(g.solved);
+});
+
+test('goal states respect star charts', () => {
+  const lv = chart('1010|1111');
+  const goals = goalStates(lv, decodeStart(lv)).map((c) => c.join(''));
+  assert.deepEqual(goals, ['01011111']);
+  const impossible = chart('1111|1111');
+  assert.deepEqual(goalStates(impossible, decodeStart(impossible)), []);
+});
+
+test('patternMatches reports per-slot matches', () => {
+  const lv = chart('0111|1011');
+  assert.deepEqual(patternMatches(lv, decodeStart(lv), 0), [true, true, false, true]);
+  assert.equal(patternMatches(lv, decodeStart(lv), 1), null);
 });

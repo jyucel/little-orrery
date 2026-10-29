@@ -14,22 +14,27 @@ and make every orbit a single color.
 | **Spin a ring** | Tap it to turn it one slot clockwise, or drag it around either way (mouse wheel works too) |
 | **Swap** | Tap a bridge ⇄ to exchange the two orbs it connects |
 | **Win** | Every ring holds orbs of one color, any color on any ring |
-| **Stars** | Each slot of spin and each swap is one move. Match *par* (the proven minimum) for ★★★ |
+| **Move limit** | Each slot of spin and each swap is one move, and every level has a move budget. Undo gives moves back |
+| **Stars** | Match *par* (the proven minimum) for ★★★. A new ★★★ or a daily puzzle earns a hint |
 
 Mechanisms join the game chapter by chapter:
 
 - **Anchored rings** (padlock) never spin.
 - **One-way rings** (arrows) turn clockwise only.
 - **Geared rings** (cogs) turn together, in opposite directions.
+- **Star charts** (colored rims) must show their exact pattern, slot by slot.
 
 Keyboard: `Z` undo · `R` restart · `H` hint · `Esc` back.
 
 ## Features
 
-- 200 levels across 8 chapters, with difficulty that rises steadily. Every level
-  is proven solvable, and par is the optimal move count.
+- 250 levels across 10 chapters, with difficulty that rises steadily (par from 1
+  up to 18). Every level is proven solvable, and par is the optimal move count.
+- Move limits that tighten chapter by chapter, so random tapping won't solve a level.
+- A daily puzzle (a pool of 120 hard boards, one per calendar day) with a streak counter.
 - An interactive tutorial (levels 1–3) that points at each next move.
-- Undo, restart, and a solver-powered hint button.
+- Undo, restart, and a solver-powered hint button. Hints are tokens, earned
+  through ★★★ finishes and daily puzzles.
 - Stars, best scores and settings saved in `localStorage`, plus a level select
   with look-ahead unlocking.
 - Mouse, touch and keyboard controls. The layout adapts to desktop and to
@@ -51,14 +56,15 @@ npm run serve        # http://localhost:8080/
 ## Tests
 
 ```bash
-npm test             # unit tests: rules, undo/restart, solver, every level, progress
+npm test             # unit tests: rules, undo/restart, solver, every level + daily, progress
 npm run test:e2e     # Playwright: real input in Chromium (desktop + mobile) and Firefox
 WEBKIT=1 npm run test:e2e   # also mobile WebKit (needs system libraries; runs in CI)
 ```
 
-`npm test` re-solves all 200 levels with an independent optimal solver, replays
-every stored solution through the game engine, and checks rules, mechanisms,
-undo, restart, win detection, progression and level geometry.
+`npm test` re-solves all 250 levels and 120 daily puzzles with an optimal
+solver, replays every stored solution through the game engine, and checks rules,
+mechanisms, move limits, undo, restart, win detection, progression, hints,
+daily streaks and level geometry.
 
 The browser tests serve the built site under `/little-orrery/` (as GitHub Pages
 does). They then play levels from every chapter to victory using real
@@ -71,8 +77,9 @@ move feedback, the hint button, audio toggles and the responsive layout.
 index.html            app shell
 css/style.css         styles
 js/engine.js          pure game rules (shared by game, generator and tests)
-js/solver.js          bidirectional BFS optimal solver
-js/levels.js          generated level data (200 levels, with par + solution)
+js/solver.js          bidirectional BFS optimal solver (packed states, typed-array hash)
+js/levels.js          generated level data (250 levels, with par, limit + solution)
+js/daily.js           generated daily-puzzle pool (120 boards)
 js/layout.js          board geometry
 js/render.js          canvas renderer, animations and pointer input
 js/audio.js           Web Audio sound effects and generative music
@@ -84,8 +91,8 @@ tools/serve.mjs       tiny static server for local play and tests
 tests/                unit tests (node:test) and e2e tests (Playwright)
 ```
 
-Regenerate the levels with `npm run generate`. The generator is seeded, so the
-output is deterministic. It scrambles solved boards and keeps a board only when
+Regenerate the levels with `npm run generate` (about 10 minutes, runs chapters in
+parallel worker threads). The generator is seeded, so the output is deterministic. It scrambles solved boards and keeps a board only when
 its optimal solution length matches the difficulty curve.
 
 ## Deployment

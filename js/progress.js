@@ -5,6 +5,20 @@ import { starsFor } from './engine.js';
 
 const KEY = 'little-orrery.v1';
 export const LOOKAHEAD = 3; // levels playable beyond the last solved one
+export const START_HINTS = 3;
+export const MAX_HINTS = 9;
+
+/** Local calendar date as YYYY-MM-DD. */
+export function dayKey(date = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`;
+}
+
+/** Whole days between two YYYY-MM-DD keys (b - a). */
+export function dayDiff(a, b) {
+  const t = (k) => Date.UTC(+k.slice(0, 4), +k.slice(5, 7) - 1, +k.slice(8, 10));
+  return Math.round((t(b) - t(a)) / 86_400_000);
+}
 
 function defaults() {
   return {
@@ -13,6 +27,8 @@ function defaults() {
     best: {}, // level id -> fewest moves
     seen: {}, // one-time intros already shown
     last: 1, // last level played
+    hints: START_HINTS, // earned hint tokens
+    daily: { solved: {}, streak: 0, bestStreak: 0, lastDay: null },
     settings: { sfx: true, music: true, glyphs: true },
   };
 }
@@ -27,7 +43,8 @@ export class Progress {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && parsed.v === 1) {
-          this.data = { ...defaults(), ...parsed, settings: { ...defaults().settings, ...parsed.settings } };
+          const d = defaults();
+          this.data = { ...d, ...parsed, settings: { ...d.settings, ...parsed.settings }, daily: { ...d.daily, ...parsed.daily } };
         }
       }
     } catch {
@@ -63,15 +80,68 @@ export class Progress {
     return this.isSolved(id);
   }
 
-  /** Record a finished level. Returns the stars earned and whether it was a record. */
-  recordWin(id, moves, par) {
-    const stars = starsFor(moves, par);
+  /**
+   * Record a finished level. Returns the stars earned, whether it was a
+   * record, and whether a hint token was earned (first three-star finish).
+   */
+  recordWin(id, moves, par, limit) {
+    const stars = starsFor(moves, par, limit);
     const prevBest = this.best(id);
     const newBest = prevBest === null || moves < prevBest;
+    const prevStars = this.stars(id);
     if (newBest) this.data.best[id] = moves;
-    if (stars > this.stars(id)) this.data.stars[id] = stars;
+    if (stars > prevStars) this.data.stars[id] = stars;
+    const hintEarned = stars === 3 && prevStars < 3 && this.addHint();
     this.save();
-    return { stars, newBest, prevBest };
+    return { stars, newBest, prevBest, hintEarned };
+  }
+
+  get hints() {
+    return this.data.hints;
+  }
+
+  /** Grant a hint token (capped). Returns true if one was added. */
+  addHint() {
+    if (this.data.hints >= MAX_HINTS) return false;
+    this.data.hints++;
+    this.save();
+    return true;
+  }
+
+  /** Spend a hint token. Returns false when none are left. */
+  useHint() {
+    if (this.data.hints <= 0) return false;
+    this.data.hints--;
+    this.save();
+    return true;
+  }
+
+  // ---- daily puzzle ---------------------------------------------------------
+
+  dailyDone(day = dayKey()) {
+    return !!this.data.daily.solved[day];
+  }
+
+  /** Current streak, counting only if it is still alive today. */
+  dailyStreak(today = dayKey()) {
+    const d = this.data.daily;
+    if (!d.lastDay) return 0;
+    return dayDiff(d.lastDay, today) <= 1 ? d.streak : 0;
+  }
+
+  recordDaily(day, moves, par, limit) {
+    const d = this.data.daily;
+    const stars = starsFor(moves, par, limit);
+    const first = !d.solved[day];
+    d.solved[day] = Math.max(d.solved[day] || 0, stars);
+    if (first) {
+      d.streak = d.lastDay && dayDiff(d.lastDay, day) === 1 ? d.streak + 1 : 1;
+      d.lastDay = day;
+      d.bestStreak = Math.max(d.bestStreak, d.streak);
+      this.addHint();
+    }
+    this.save();
+    return { stars, streak: d.streak, first };
   }
 
   setLast(id) {

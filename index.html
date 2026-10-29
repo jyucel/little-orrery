@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <title>Little Orrery: a celestial sorting puzzle</title>
-  <meta name="description" content="Spin the rings, swap at the bridges, and make every orbit one color. 200 calm puzzles, each proven solvable. Free, no ads, no sign-up.">
+  <meta name="description" content="Spin the rings, swap at the bridges, and make every orbit one color. 250 puzzles plus a daily challenge, each proven solvable. Free, no ads, no sign-up.">
   <meta name="theme-color" content="#120f2e">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
@@ -36,6 +36,7 @@
         <p class="tagline">Spin the rings. Swap at the bridges.<br>Make every orbit one color.</p>
         <div class="title-buttons">
           <button id="btn-play" class="btn primary big">Play <small id="play-level"></small></button>
+          <button id="btn-daily" class="btn daily"><span class="daily-title">☀ Daily Orrery</span><small id="daily-sub"></small></button>
           <button id="btn-levels" class="btn">Levels</button>
           <button id="btn-help" class="btn ghost">How to play</button>
         </div>
@@ -73,7 +74,7 @@
           <div class="hud-chapter" id="hud-chapter">First Light</div>
         </div>
         <div class="hud-moves">
-          <div><span class="label">Moves</span> <b id="hud-moves">0</b></div>
+          <div><span class="label">Moves</span> <b id="hud-moves">0</b><span class="of"> / <span id="hud-limit">0</span></span></div>
           <div><span class="label">Par</span> <b id="hud-par">0</b> <span class="mini-stars" id="hud-stars"></span></div>
         </div>
         <button class="icon-btn" data-toggle="sfx" aria-label="Toggle sound effects"></button>
@@ -99,6 +100,7 @@
         <button class="ctrl" id="btn-hint" aria-label="Hint (H)">
           <svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.8V16h5v-.3c0-.7.4-1.4 1-1.8A6 6 0 0 0 12 3Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <span>Hint</span>
+          <b class="badge" id="hint-count" aria-label="hints left">3</b>
         </button>
       </footer>
     </section>
@@ -115,6 +117,19 @@
         <button class="btn ghost" id="win-replay">Replay</button>
         <button class="btn" id="win-levels">Levels</button>
         <button class="btn primary" id="win-next">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Out of moves -->
+  <div class="modal" id="modal-out" role="dialog" aria-modal="true" aria-labelledby="out-title" hidden>
+    <div class="card">
+      <div class="eyebrow">Move limit reached</div>
+      <h2 id="out-title">Out of moves</h2>
+      <p>The orbits are still tangled. Step back a few moves, or start fresh with a new plan.</p>
+      <div class="card-buttons">
+        <button class="btn" id="out-undo">Undo</button>
+        <button class="btn primary" id="out-restart">Restart</button>
       </div>
     </div>
   </div>
@@ -138,8 +153,9 @@
         <li><b>Goal:</b> make every ring hold orbs of a single color.</li>
         <li><b>Spin:</b> tap a ring to turn it one slot clockwise, or drag it around in either direction. Mouse wheel works too.</li>
         <li><b>Swap:</b> tap a bridge <span class="swap-chip">⇄</span> to exchange the two orbs it connects.</li>
-        <li><b>Stars:</b> every slot of spin and every swap is one move. Match <i>par</i> (the fewest possible) for three stars.</li>
-        <li><b>Mechanisms:</b> anchored rings (padlock) never spin, one-way rings (arrow) only turn clockwise, geared rings (cog) turn together in opposite directions.</li>
+        <li><b>Moves are limited:</b> every slot of spin and every swap costs one move. Undo gives moves back.</li>
+        <li><b>Stars:</b> match <i>par</i> (the fewest possible) for three stars. A new ★★★ or a daily puzzle earns a hint.</li>
+        <li><b>Mechanisms:</b> anchored rings (padlock) never spin, one-way rings (arrows) only turn clockwise, geared rings (cog) turn together in opposite directions, and star charts (colored rims) must match their pattern exactly.</li>
       </ol>
       <p class="keys">Keyboard: <kbd>Z</kbd> undo · <kbd>R</kbd> restart · <kbd>H</kbd> hint · <kbd>Esc</kbd> back</p>
       <div class="card-buttons"><button class="btn primary" data-close>Let’s play</button></div>

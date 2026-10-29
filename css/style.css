@@ -434,3 +434,38 @@ kbd { border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; font-
   .emblem .orbit, .hand { animation: none; }
   .screen { transition: none; }
 }
+
+/* ---------- additions: daily, move limit, hint badge ---------- */
+
+.btn.daily {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  border-color: rgba(255, 190, 69, 0.55);
+  background: linear-gradient(180deg, rgba(255, 190, 69, 0.18), rgba(30, 25, 70, 0.72));
+}
+.btn.daily small { font-size: 0.72rem; font-weight: 600; color: var(--ink-dim); letter-spacing: 0.03em; }
+.btn.daily.done { border-color: var(--line); background: var(--panel); }
+.btn.daily.done .daily-title { color: var(--ink-dim); }
+
+.hud-moves .of { color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.hud-moves.low .of, .hud-moves.low #hud-moves { color: #ff9b7a; }
+
+.ctrl { position: relative; }
+.ctrl .badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 11px;
+  background: linear-gradient(180deg, #ffe2a8, #d7a95c);
+  color: #2a1d05;
+  font-size: 0.75rem;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}

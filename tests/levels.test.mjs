@@ -2,12 +2,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { LEVELS, CHAPTERS } from '../js/levels.js';
+import { DAILY } from '../js/daily.js';
 import { Game, decodeStart, isSolved, isRingSolved, validateLevel } from '../js/engine.js';
 import { solve } from '../js/solver.js';
 import { ORB_R } from '../js/layout.js';
 
-test('at least 200 levels with sequential ids', () => {
-  assert.ok(LEVELS.length >= 200, `only ${LEVELS.length} levels`);
+test('250 levels with sequential ids', () => {
+  assert.ok(LEVELS.length >= 250, `only ${LEVELS.length} levels`);
   LEVELS.forEach((l, i) => assert.equal(l.id, i + 1));
 });
 
@@ -28,8 +29,10 @@ test('no level starts solved or with a finished ring', () => {
   }
 });
 
-test('stored solution solves every level through the game rules in exactly par moves', () => {
-  for (const l of LEVELS) {
+const ALL = [...LEVELS, ...DAILY];
+
+test('stored solution solves every level (and daily puzzle) through the game rules in exactly par moves', () => {
+  for (const l of ALL) {
     const g = new Game(l);
     assert.equal(l.solution.length, l.par, `level ${l.id}`);
     l.solution.forEach((id, i) => {
@@ -41,9 +44,9 @@ test('stored solution solves every level through the game rules in exactly par m
   }
 });
 
-test('independent solver proves every level solvable and par optimal', { timeout: 900_000 }, () => {
-  for (const l of LEVELS) {
-    const res = solve(l, decodeStart(l), { maxNodes: 4_000_000 });
+test('independent solver proves every level solvable and par optimal', { timeout: 1_800_000 }, () => {
+  for (const l of ALL) {
+    const res = solve(l, decodeStart(l), { maxNodes: 8_000_000 });
     assert.ok(res, `level ${l.id}: solver found no solution`);
     assert.equal(res.length, l.par, `level ${l.id}: optimal ${res.length} != par ${l.par}`);
     const g = new Game(l);
@@ -52,26 +55,56 @@ test('independent solver proves every level solvable and par optimal', { timeout
   }
 });
 
+test('move limits leave a margin above par that tightens later', () => {
+  for (const l of ALL) {
+    assert.ok(Number.isInteger(l.limit), `level ${l.id} has no limit`);
+    assert.ok(l.limit >= l.par + 3, `level ${l.id}: limit too tight`);
+    assert.ok(l.limit <= l.par + 6, `level ${l.id}: limit too loose`);
+  }
+  const margin = (c) => LEVELS.filter((l) => l.chapter === c).reduce((a, l) => a + l.limit - l.par, 0) / 25;
+  assert.ok(margin(CHAPTERS.length - 1) < margin(0));
+});
+
+test('daily pool: valid, distinct, mid-to-hard', () => {
+  assert.ok(DAILY.length >= 100);
+  for (const d of DAILY) {
+    assert.deepEqual(validateLevel(d), [], `daily ${d.id}`);
+    assert.ok(d.par >= 9, `daily ${d.id} too easy (${d.par})`);
+    const cells = decodeStart(d);
+    d.rings.forEach((_, r) => assert.equal(isRingSolved(d, cells, r), false, `daily ${d.id} ring ${r}`));
+  }
+  assert.equal(new Set(DAILY.map((d) => d.start + JSON.stringify(d.bridges))).size, DAILY.length);
+});
+
 test('mechanisms appear only from their chapter on', () => {
   const first = (pred) => LEVELS.find(pred)?.chapter;
   assert.equal(first((l) => l.rings.some((r) => r.locked)), 3);
   assert.equal(first((l) => l.rings.some((r) => r.oneway)), 4);
   assert.equal(first((l) => (l.gears || []).length), 5);
+  assert.equal(first((l) => l.rings.some((r) => r.pattern)), 6);
+  const chart = LEVELS.filter((l) => l.chapter === 6);
+  assert.ok(chart.every((l) => l.rings.some((r) => r.pattern)), 'every Star Charts level has a chart');
 });
 
-test('difficulty increases: chapter average par rises and the curve trends upward', () => {
+test('difficulty increases: the curve climbs within chapters and across the game', () => {
   const avg = CHAPTERS.map((_, c) => {
     const ls = LEVELS.filter((l) => l.chapter === c);
     return ls.reduce((a, l) => a + l.par, 0) / ls.length;
   });
-  for (let c = 1; c < avg.length; c++) assert.ok(avg[c] >= avg[c - 1] - 0.5, `chapter ${c + 1} easier than ${c}`);
-  assert.ok(avg.at(-1) > avg[0] + 5);
+  // a new mechanism may ease in, but never drops far below the previous chapter
+  for (let c = 1; c < avg.length; c++) assert.ok(avg[c] >= avg[c - 1] - 2, `chapter ${c + 1} much easier than ${c}`);
+  const firstThird = (avg[0] + avg[1] + avg[2]) / 3;
+  const lastThird = (avg.at(-1) + avg.at(-2) + avg.at(-3)) / 3;
+  assert.ok(lastThird > firstThird + 5, `late game not harder (${firstThird.toFixed(1)} -> ${lastThird.toFixed(1)})`);
   for (let c = 0; c < CHAPTERS.length; c++) {
     const ls = LEVELS.filter((l) => l.chapter === c);
-    assert.ok(ls.at(-1).par > ls[0].par, `chapter ${c + 1} does not ramp`);
+    const early = ls.slice(0, 5).reduce((a, l) => a + l.par, 0) / 5;
+    const late = ls.slice(-5).reduce((a, l) => a + l.par, 0) / 5;
+    assert.ok(late > early + 2, `chapter ${c + 1} does not ramp`);
   }
+  assert.ok(LEVELS.filter((l) => l.chapter >= 7).every((l) => l.par >= 9), 'last chapters have no easy levels');
   const rings = (c) => LEVELS.filter((l) => l.chapter === c).reduce((a, l) => a + l.rings.length, 0) / 25;
-  assert.ok(rings(7) > rings(0), 'late levels use more rings');
+  assert.ok(rings(CHAPTERS.length - 1) > rings(0), 'late levels use more rings');
 });
 
 test('tutorial levels are gentle', () => {
@@ -82,7 +115,7 @@ test('tutorial levels are gentle', () => {
 });
 
 test('geometry: rings do not overlap and bridges have room', () => {
-  for (const l of LEVELS) {
+  for (const l of ALL) {
     for (let i = 0; i < l.rings.length; i++) {
       for (let j = i + 1; j < l.rings.length; j++) {
         const a = l.rings[i];

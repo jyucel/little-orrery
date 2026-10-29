@@ -5,7 +5,7 @@
 // never changes game state itself; it reports actions through
 // `onAction(ids, meta)` and the controller applies them.
 
-import { ringOffsets } from './engine.js';
+import { ringOffsets, patternMatches } from './engine.js';
 import { ORB_R, boardBounds, rotatedQuarter, slotAngle } from './layout.js';
 
 export const COLORS = [
@@ -632,6 +632,35 @@ export class BoardView {
         g.fill();
       }
 
+      // star chart: every slot shows the color it must end up with
+      if (ring.pattern) {
+        const match = patternMatches(L, this.game.cells, r);
+        const settled = Math.abs(off) < 0.05;
+        for (let k = 0; k < ring.n; k++) {
+          const a = slotAngle(geo, k);
+          const x = cx + Math.cos(a) * R;
+          const y = cy + Math.sin(a) * R;
+          const c = COLORS[Number(ring.pattern[k])];
+          const ok = settled && match[k];
+          g.fillStyle = hexA(c.hex, 0.28);
+          g.beginPath();
+          g.arc(x, y, ORB_R * s * 0.82, 0, TAU);
+          g.fill();
+          g.strokeStyle = hexA(c.hex, ok ? 1 : 0.75);
+          g.lineWidth = Math.max(2, s * (ok ? 0.1 : 0.07));
+          g.beginPath();
+          g.arc(x, y, ORB_R * s * 1.3, 0, TAU);
+          g.stroke();
+          if (ok) {
+            // small notch pointing outward marks a matched slot
+            g.fillStyle = c.light;
+            g.beginPath();
+            g.arc(x + Math.cos(a) * ORB_R * s * 1.3, y + Math.sin(a) * ORB_R * s * 1.3, Math.max(2, s * 0.07), 0, TAU);
+            g.fill();
+          }
+        }
+      }
+
       drawHub(g, ring, cx, cy, s, off, this.partnerOf(r) >= 0);
     });
 
@@ -847,6 +876,23 @@ function drawHub(g, ring, cx, cy, s, off, geared) {
     g.beginPath();
     g.arc(0, -r * 0.12, r * 0.28, Math.PI, 0);
     g.stroke();
+  } else if (ring.pattern && !ring.oneway) {
+    g.fillStyle = '#2a2350';
+    g.strokeStyle = BRASS;
+    g.lineWidth = Math.max(1.5, s * 0.05);
+    g.beginPath();
+    g.arc(0, 0, r * 1.05, 0, TAU);
+    g.fill();
+    g.stroke();
+    g.fillStyle = '#ffe2a8';
+    g.beginPath();
+    for (let k = 0; k < 8; k++) {
+      const a = -Math.PI / 2 + (k * Math.PI) / 4;
+      const rr = k % 2 ? r * 0.22 : r * 0.7;
+      g.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+    }
+    g.closePath();
+    g.fill();
   } else if (ring.oneway) {
     g.fillStyle = '#2a2350';
     g.strokeStyle = BRASS;

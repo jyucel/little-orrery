@@ -81,7 +81,8 @@ test('title screen loads cleanly with relative assets under a sub-path', async (
   await page.goto('./');
   await expect(page.locator('h1.logo')).toContainText('Little');
   await expect(page.locator('#btn-play')).toBeVisible();
-  await expect(page.locator('#title-stats')).toContainText('200 puzzles');
+  await expect(page.locator('#title-stats')).toContainText('250 puzzles');
+  await expect(page.locator('#btn-daily')).toBeVisible();
   await page.waitForTimeout(300);
   expect(failed).toEqual([]);
   expect(errors).toEqual([]);
@@ -187,7 +188,7 @@ test('keyboard shortcuts: Z undoes, R restarts', async ({ page, isMobile }) => {
   expect(await state(page)).toEqual(s0);
 });
 
-for (const id of [7, 33, 61, 88, 112, 140, 163, 200]) {
+for (const id of [7, 33, 61, 88, 112, 140, 163, 190, 215, 250]) {
   test(`level ${id} can be solved at par through real input`, async ({ page, isMobile }) => {
     const errors = trackErrors(page);
     await seedProgress(page, id - 1);
@@ -203,7 +204,7 @@ for (const id of [7, 33, 61, 88, 112, 140, 163, 200]) {
     const saved = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)), KEY);
     expect(saved.stars[String(id)]).toBe(3);
     expect(saved.best[String(id)]).toBe(par);
-    if (id === 200) {
+    if (id === 250) {
       await expect(page.locator('#win-title')).toContainText('Grand Orrery');
       await expect(page.locator('#win-next')).toBeHidden();
     }
@@ -252,11 +253,13 @@ test('mechanism intro appears once for a new chapter', async ({ page }) => {
   await expect(page.locator('#modal-intro')).toBeHidden();
 });
 
-test('hint points at a useful move', async ({ page }) => {
+test('hint points at a useful move and costs a hint token', async ({ page }) => {
   await seedProgress(page, 40);
   await openLevel(page, 41);
+  await expect(page.locator('#hint-count')).toHaveText('3');
   await page.click('#btn-hint');
   await expect(page.locator('#toast')).toContainText('from here');
+  await expect(page.locator('#hint-count')).toHaveText('2');
   const hint = await page.evaluate(() => window.__orrery.view.hint && window.__orrery.view.hint.id);
   expect(hint).toBeTruthy();
   const ok = await page.evaluate((h) => window.__orrery.game.canPlay(h), hint);
@@ -267,8 +270,8 @@ test('locked levels cannot be opened from level select or deep link', async ({ p
   await page.goto('./#level=150');
   await expect(page.locator('#screen-title')).toHaveClass(/active/);
   await page.click('#btn-levels');
-  await expect(page.locator('.lvl')).toHaveCount(200);
-  await expect(page.locator('.lvl.locked')).toHaveCount(197);
+  await expect(page.locator('.lvl')).toHaveCount(250);
+  await expect(page.locator('.lvl.locked')).toHaveCount(247);
   await page.locator('.lvl[data-level="2"]').click();
   await expect(page.locator('#hud-level')).toHaveText('Level 2');
   await page.click('#btn-back');
@@ -288,8 +291,8 @@ test('sound and music toggles persist', async ({ page }) => {
 });
 
 test('layout fits the viewport with touch-sized controls', async ({ page }) => {
-  await seedProgress(page, 200);
-  for (const id of [1, 100, 181, 200]) {
+  await seedProgress(page, 250);
+  for (const id of [1, 100, 181, 250]) {
     await openLevel(page, id);
     const m = await page.evaluate(() => {
       const vw = window.innerWidth;
@@ -326,4 +329,52 @@ test('layout fits the viewport with touch-sized controls', async ({ page }) => {
     expect(m.board.height).toBeGreaterThan(m.vh * 0.45);
     expect(m.orbPx).toBeGreaterThan(24);
   }
+});
+
+test('running out of moves blocks further moves until undo or restart', async ({ page, isMobile }) => {
+  await seedProgress(page, 40);
+  await openLevel(page, 30);
+  const limit = await page.evaluate(() => window.__orrery.level.limit);
+  await expect(page.locator('#hud-limit')).toHaveText(String(limit));
+  for (let i = 0; i < limit; i++) await input(page, 'r0+', isMobile);
+  await expect(page.locator('#modal-out')).toBeVisible();
+  expect((await state(page)).moves).toBe(limit);
+  await page.click('#out-undo');
+  await expect(page.locator('#modal-out')).toBeHidden();
+  expect((await state(page)).moves).toBe(limit - 1);
+  await input(page, 'r0+', isMobile);
+  await expect(page.locator('#modal-out')).toBeVisible();
+  await page.click('#out-restart');
+  expect((await state(page)).moves).toBe(0);
+});
+
+test('daily puzzle: playable from the title, records a streak and grants a hint', async ({ page, isMobile }) => {
+  await seedProgress(page, 0, { seen: { locked: true, oneway: true, gear: true, pattern: true } });
+  await page.goto('./');
+  await expect(page.locator('#daily-sub')).toContainText('fresh puzzle');
+  await page.click('#btn-daily');
+  await expect(page.locator('#hud-level')).toHaveText('Daily Orrery');
+  await page.waitForTimeout(150);
+  const solution = await page.evaluate(() => window.__orrery.level.solution);
+  for (const mv of solution) await input(page, mv, isMobile);
+  await expect(page.locator('#modal-win')).toBeVisible();
+  await expect(page.locator('#win-title')).toContainText('Daily');
+  await expect(page.locator('#win-best')).toContainText('1-day streak');
+  await expect(page.locator('#win-next')).toBeHidden();
+  await page.click('#win-levels');
+  await expect(page.locator('#screen-title')).toHaveClass(/active/);
+  await expect(page.locator('#daily-sub')).toContainText('Solved today');
+  const saved = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)), KEY);
+  expect(saved.daily.streak).toBe(1);
+  expect(saved.hints).toBe(4);
+});
+
+test('star chart intro appears and chart rings render', async ({ page }) => {
+  await seedProgress(page, 150);
+  await page.goto('./#level=151');
+  await expect(page.locator('#modal-intro')).toBeVisible();
+  await expect(page.locator('#intro-title')).toHaveText('Star charts');
+  await page.click('#intro-ok');
+  const hasChart = await page.evaluate(() => window.__orrery.level.rings.some((r) => r.pattern));
+  expect(hasChart).toBe(true);
 });
