@@ -1,0 +1,16 @@
+{
+  "name": "Little Orrery",
+  "short_name": "Orrery",
+  "description": "A calm celestial sorting puzzle: spin the rings, swap at the bridges, make every orbit one color.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b0a22",
+  "theme_color": "#120f2e",
+  "icons": [
+    { "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
